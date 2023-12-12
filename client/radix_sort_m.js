@@ -358,14 +358,20 @@ function getRandomInt(max)
     return Math.floor(Math.random() * max);
 }
 
+let engine_ctx = null;
+
 export async function test()
 {
-    const engine_ctx = new EngineContext();
+    //const engine_ctx = new EngineContext();
+    if (!engine_ctx) {
+        engine_ctx = new EngineContext();
+    }
+
     await engine_ctx.initialize();
 
-    let count = 64*64*64;
+    let count = 64*64*64 *4*2; // ~2 MB max // 64*64*64 (default)
     let num_groups_radix_scan = Math.floor((count + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x);
-    let max_value = 10000;
+    let max_value = 1073741824-1; // 10000 (default)
     let hInput = new Int32Array(count);
     for (let i=0; i<count; i++)
     {
@@ -748,7 +754,7 @@ export async function test()
     }
 
 
-    let bits = 14;    
+    let bits = 30; // 14 (default)
 
     {        
         let commandEncoder = engine_ctx.device.createCommandEncoder();
@@ -757,8 +763,18 @@ export async function test()
         engine_ctx.queue.submit([cmdBuf]);
     }
 
+    const uniform = new Int32Array(4);
+    uniform[0] = count;
+    engine_ctx.queue.writeBuffer(buf_constant_radix_scatter, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
+
+    const startTime = performance.now();
+
     for (let i=0; i<bits; i++)
     {
+        uniform[1] = i;
+        engine_ctx.queue.writeBuffer(buf_constant_radix_scan, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
+
+        /*
         {
             const uniform = new Int32Array(4);
             uniform[0] = count;
@@ -771,6 +787,7 @@ export async function test()
             uniform[0] = count;
             engine_ctx.queue.writeBuffer(buf_constant_radix_scatter, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
         }
+        */
 
         let commandEncoder = engine_ctx.device.createCommandEncoder();
 
@@ -827,6 +844,9 @@ export async function test()
         engine_ctx.queue.submit([cmdBuf]);
     }
 
+    const endTime = performance.now();
+    console.log(`Call to radix_sort took ${endTime - startTime} milliseconds`);
+
 
     {
         let j = bits % 2;
@@ -845,7 +865,7 @@ export async function test()
         buf_download.unmap();
     }   
 
-    console.log(hInput, hOutput, hReference);
+    //console.log(hInput, hOutput, hReference);
 
     let count_unmatch = 0;
     for (let i=0; i<count; i++)
@@ -858,5 +878,6 @@ export async function test()
 
     console.log(`count_unmatch: ${count_unmatch}`);
 
+    return endTime - startTime;
 }
 
