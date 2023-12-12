@@ -362,28 +362,21 @@ let engine_ctx = null;
 
 export async function test()
 {
-    //const engine_ctx = new EngineContext();
     if (!engine_ctx) {
+        //const engine_ctx = new EngineContext();
         engine_ctx = new EngineContext();
     }
 
     await engine_ctx.initialize();
 
-    let count = 64*64*64 *4*2; // ~2 MB max // 64*64*64 (default)
+    let count = 64*64*64 *4*2; // ~2 MB max // 16; //
     let num_groups_radix_scan = Math.floor((count + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x);
-    let max_value = 1073741824-1; // 10000 (default)
+    //let max_value = 10000;
+    let max_value = 1073741824-1; // 100000; //20000;
+
     let hInput = new Int32Array(count);
-    for (let i=0; i<count; i++)
-    {
-        hInput[i] = getRandomInt(max_value);
-    }
-
     let hReference = new Int32Array(count);
-    hReference.set(hInput);
-    hReference.sort();
-
     let buf_data = engine_ctx.createBuffer0(count * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
-    engine_ctx.queue.writeBuffer(buf_data, 0, hInput.buffer, hInput.byteOffset, hInput.byteLength);
 
     let buf_tmp = new Array(2);    
     buf_tmp[0] = engine_ctx.createBuffer0(count * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
@@ -404,6 +397,8 @@ export async function test()
         buf_sizes.push(buf_size);
         buf_size = Math.floor((buf_size + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x) - 1;
     }
+
+    //console.log(`buf_sizes = ${buf_sizes}`);
 
     let buf_constant_radix_scatter = engine_ctx.createBuffer0(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);    
     let buf_download = engine_ctx.createBuffer0(count * 4, GPUBufferUsage.COPY_DST| GPUBufferUsage.MAP_READ);
@@ -754,130 +749,158 @@ export async function test()
     }
 
 
-    let bits = 30; // 14 (default)
+    //let bits = 14;
+    let bits = 30;
 
-    {        
-        let commandEncoder = engine_ctx.device.createCommandEncoder();
-        commandEncoder.copyBufferToBuffer(buf_data, 0, buf_tmp[0], 0, count * 4);        
-        let cmdBuf = commandEncoder.finish();
-        engine_ctx.queue.submit([cmdBuf]);
-    }
+   //let avg_time = 0;
+
+   //const NUM_TEST_COUNT = 10; //1; //
+   //for (let p=0; p<NUM_TEST_COUNT; p++) {
 
     const uniform = new Int32Array(4);
     uniform[0] = count;
     engine_ctx.queue.writeBuffer(buf_constant_radix_scatter, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
 
-    const startTime = performance.now();
+    const NUM_PASSES = 30;
+    let avgTime = 0;
+    for (let p=0; p<NUM_PASSES + 1; p++) {
 
-    for (let i=0; i<bits; i++)
-    {
-        uniform[1] = i;
-        engine_ctx.queue.writeBuffer(buf_constant_radix_scan, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
+        for (let i=0; i<count; i++) {
+            hInput[i] = getRandomInt(max_value);
+        }
 
-        /*
+        hReference.set(hInput);
+        hReference.sort();
+    
+        engine_ctx.queue.writeBuffer(buf_data, 0, hInput.buffer, hInput.byteOffset, hInput.byteLength);
+        {        
+            let commandEncoder = engine_ctx.device.createCommandEncoder();
+            commandEncoder.copyBufferToBuffer(buf_data, 0, buf_tmp[0], 0, count * 4);        
+            let cmdBuf = commandEncoder.finish();
+            engine_ctx.queue.submit([cmdBuf]);
+        }
+
+
+        const startTime = performance.now();
+
+        for (let i=0; i<bits; i++)
         {
-            const uniform = new Int32Array(4);
-            uniform[0] = count;
             uniform[1] = i;
             engine_ctx.queue.writeBuffer(buf_constant_radix_scan, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
-        }
 
-        {
-            const uniform = new Int32Array(4);
-            uniform[0] = count;
-            engine_ctx.queue.writeBuffer(buf_constant_radix_scatter, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
-        }
-        */
-
-        let commandEncoder = engine_ctx.device.createCommandEncoder();
-
-        let j = i % 2;            
-
-        {
-            const passEncoder = commandEncoder.beginComputePass();
+            /*
             {
-                let num_groups = Math.floor((count + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x); 
-                passEncoder.setPipeline(pipeline_radix_scan1);
-                passEncoder.setBindGroup(0, bind_group_radix_scan1[j]);
-                passEncoder.dispatchWorkgroups(num_groups, 1,1); 
+                const uniform = new Int32Array(4);
+                uniform[0] = count;
+                uniform[1] = i;
+                engine_ctx.queue.writeBuffer(buf_constant_radix_scan, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
             }
 
-            for (let k = 0; k<bind_group_radix_scan2.length; k++)
             {
-                let num_groups = Math.floor((buf_sizes[k+1] + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x); 
-                if (k<bind_group_radix_scan2.length - 1)
+                const uniform = new Int32Array(4);
+                uniform[0] = count;
+                engine_ctx.queue.writeBuffer(buf_constant_radix_scatter, 0, uniform.buffer, uniform.byteOffset, uniform.byteLength);
+            }
+            */
+
+            let commandEncoder = engine_ctx.device.createCommandEncoder();        
+
+            let j = i % 2;            
+
+            {
+                const passEncoder = commandEncoder.beginComputePass();
                 {
-                    passEncoder.setPipeline(pipeline_radix_scan2B);                
+                    let num_groups = Math.floor((count + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x); 
+                    passEncoder.setPipeline(pipeline_radix_scan1);
+                    passEncoder.setBindGroup(0, bind_group_radix_scan1[j]);
+                    passEncoder.dispatchWorkgroups(num_groups, 1,1); 
                 }
-                else
+
+                for (let k = 0; k<bind_group_radix_scan2.length; k++)
                 {
-                    passEncoder.setPipeline(pipeline_radix_scan2A);                
+                    let num_groups = Math.floor((buf_sizes[k+1] + WORKGROUP_SIZE_2x - 1)/WORKGROUP_SIZE_2x); 
+                    if (k<bind_group_radix_scan2.length - 1)
+                    {
+                        passEncoder.setPipeline(pipeline_radix_scan2B);                
+                    }
+                    else
+                    {
+                        passEncoder.setPipeline(pipeline_radix_scan2A);                
+                    }
+                    passEncoder.setBindGroup(0, bind_group_radix_scan2[k]);
+                    passEncoder.dispatchWorkgroups(num_groups, 1,1); 
                 }
-                passEncoder.setBindGroup(0, bind_group_radix_scan2[k]);
-                passEncoder.dispatchWorkgroups(num_groups, 1,1); 
-            }
 
-            for (let k = bind_group_radix_scan3.length - 1; k>=0; k--)
+                for (let k = bind_group_radix_scan3.length - 1; k>=0; k--)
+                {
+                    let num_groups = Math.floor((buf_sizes[k] + WORKGROUP_SIZE - 1)/WORKGROUP_SIZE) - 2; 
+                    passEncoder.setPipeline(pipeline_radix_scan3);
+                    passEncoder.setBindGroup(0, bind_group_radix_scan3[k]);
+                    passEncoder.dispatchWorkgroups(num_groups, 1,1);
+                }
+
+                passEncoder.end();
+
+            }
+            
+
             {
-                let num_groups = Math.floor((buf_sizes[k] + WORKGROUP_SIZE - 1)/WORKGROUP_SIZE) - 2; 
-                passEncoder.setPipeline(pipeline_radix_scan3);
-                passEncoder.setBindGroup(0, bind_group_radix_scan3[k]);
-                passEncoder.dispatchWorkgroups(num_groups, 1,1);
+                let num_groups = Math.floor((count + WORKGROUP_SIZE -1)/WORKGROUP_SIZE);
+                const passEncoder = commandEncoder.beginComputePass();
+                passEncoder.setPipeline(pipeline_radix_scatter);
+                passEncoder.setBindGroup(0, bind_group_radix_scatter[j]);
+                passEncoder.dispatchWorkgroups(num_groups, 1,1); 
+                passEncoder.end();
             }
 
-            passEncoder.end();
 
+            let cmdBuf = commandEncoder.finish();
+            engine_ctx.queue.submit([cmdBuf]);
         }
-        
+
+        const endTime = performance.now();
+
+        if (p >= 1) {
+            avgTime += endTime - startTime;
+        }
+        console.log(`Call to radix_sort took ${endTime - startTime} milliseconds [PASS #${p}]`);
+
+        //console.log(`bind_group_radix_scan3.length = ${bind_group_radix_scan3.length}`);
 
         {
-            let num_groups = Math.floor((count + WORKGROUP_SIZE -1)/WORKGROUP_SIZE);
-            const passEncoder = commandEncoder.beginComputePass();
-            passEncoder.setPipeline(pipeline_radix_scatter);
-            passEncoder.setBindGroup(0, bind_group_radix_scatter[j]);
-            passEncoder.dispatchWorkgroups(num_groups, 1,1); 
-            passEncoder.end();
+            let j = bits % 2;
+            let commandEncoder = engine_ctx.device.createCommandEncoder();
+            commandEncoder.copyBufferToBuffer(buf_tmp[j], 0, buf_data, 0, count * 4);
+            commandEncoder.copyBufferToBuffer(buf_data, 0, buf_download, 0, count * 4);
+            let cmdBuf = commandEncoder.finish();
+            engine_ctx.queue.submit([cmdBuf]);
         }
 
+        let hOutput = new Int32Array(count);
+        {   
+            await buf_download.mapAsync(GPUMapMode.READ);
+            let buf = buf_download.getMappedRange();
+            hOutput.set(new Int32Array(buf));
+            buf_download.unmap();
+        }   
 
-        let cmdBuf = commandEncoder.finish();
-        engine_ctx.queue.submit([cmdBuf]);
-    }
+        //console.log(hInput, hOutput, hReference);
 
-    const endTime = performance.now();
-    console.log(`Call to radix_sort took ${endTime - startTime} milliseconds`);
-
-
-    {
-        let j = bits % 2;
-        let commandEncoder = engine_ctx.device.createCommandEncoder();
-        commandEncoder.copyBufferToBuffer(buf_tmp[j], 0, buf_data, 0, count * 4);
-        commandEncoder.copyBufferToBuffer(buf_data, 0, buf_download, 0, count * 4);
-        let cmdBuf = commandEncoder.finish();
-        engine_ctx.queue.submit([cmdBuf]);
-    }
-
-    let hOutput = new Int32Array(count);
-    {   
-        await buf_download.mapAsync(GPUMapMode.READ);
-        let buf = buf_download.getMappedRange();
-        hOutput.set(new Int32Array(buf));
-        buf_download.unmap();
-    }   
-
-    //console.log(hInput, hOutput, hReference);
-
-    let count_unmatch = 0;
-    for (let i=0; i<count; i++)
-    {
-        if (hOutput[i]!= hReference[i])
+        let count_unmatch = 0;
+        for (let i=0; i<count; i++)
         {
-            count_unmatch++;
+            if (hOutput[i]!= hReference[i])
+            {
+                count_unmatch++;
+            }
         }
+
+        console.log(`count_unmatch: ${count_unmatch}`);
     }
 
-    console.log(`count_unmatch: ${count_unmatch}`);
+    avgTime /= NUM_PASSES;
+    console.log(`Call to radix_sort took ${avgTime} milliseconds [AVG in ${NUM_PASSES} PASSES]`);
 
-    return endTime - startTime;
+    return avgTime; //return endTime - startTime;
 }
 
